@@ -20,6 +20,8 @@ async def lifespan(_: FastAPI):
         seed(db)
     finally:
         db.close()
+    from .services.backup import start_scheduler
+    start_scheduler()
     yield
 
 

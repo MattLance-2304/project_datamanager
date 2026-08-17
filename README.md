@@ -81,6 +81,26 @@ cd zcode && docker compose up -d --build
 >
 > 建议按 README 前文的备份方案定期 pg_dump + rsync，多一重保险。
 
+## 数据备份（系统级）
+
+在「系统管理 → 运维」中配置，备份覆盖**全部上传的文件**（不再作为与原始/派生并列的数据类型）：
+
+- **实时备份**：每个文件上传完成后自动复制一份到备份目录
+- **定时备份**：每天在设定时刻执行增量备份（已备份过的文件自动跳过，内容寻址让增量天然高效）
+- **手动**：「立即全量备份」按钮随时触发
+
+备份目录默认为容器内 `/data/backup`（独立 Docker 卷 `backups`）。**更安全的做法是挂载到容器外**——编辑 `docker-compose.yml`：
+
+```yaml
+    volumes:
+      - filestore:/data/files
+      - /mnt/nas-backup/rdms:/data/backup   # 宿主机路径或 NAS 挂载点，替换 "- backups:/data/backup"
+```
+
+备份内容：`pool/`（全部文件本体）+ `metadata.json`（所有条目元数据快照）+ `manifest.json`（统计）。恢复时把 pool 内容复制回主存储并用 metadata.json 重建记录（完整恢复工具在后续版本提供，目前可联系数据管理员手工处理）。
+
+> 数据库本身的备份仍建议保留每日 `pg_dump`（见下节），两者互补。
+
 ## 数据存放位置与备份
 
 | 内容 | 位置（容器卷） | 说明 |

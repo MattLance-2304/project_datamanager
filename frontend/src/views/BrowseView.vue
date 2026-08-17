@@ -27,7 +27,6 @@
           <el-select v-model="filters.kind" clearable placeholder="全部" style="width: 120px" @change="load(1)">
             <el-option label="原始数据" value="raw" />
             <el-option label="派生数据" value="derived" />
-            <el-option label="备份文件" value="backup" />
           </el-select>
         </el-form-item>
         <el-form-item label="发表状态">

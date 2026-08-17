@@ -172,3 +172,31 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(32))  # create/update/mark_used/unmark_used/delete/restore/hard_delete
     changes: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # {字段: {old, new}}
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class BackupSetting(Base):
+    """系统级备份设置（单行，id=1）。"""
+
+    __tablename__ = "backup_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16), default="off")     # off / realtime / scheduled
+    run_at: Mapped[str] = mapped_column(String(5), default="02:00")  # 定时模式每天执行时刻 HH:MM
+    last_run_date: Mapped[str] = mapped_column(String(10), default="")  # YYYY-MM-DD，防同日重复
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class BackupRun(Base):
+    """一次全量备份的执行记录（手动 / 定时）。"""
+
+    __tablename__ = "backup_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(16))  # manual / scheduled
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running / done / error
+    file_count: Mapped[int] = mapped_column(default=0)
+    total_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    target: Mapped[str] = mapped_column(String(512), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

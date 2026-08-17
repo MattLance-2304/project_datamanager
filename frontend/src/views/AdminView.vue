@@ -165,7 +165,54 @@
     </el-tab-pane>
 
     <!-- ========== 运维 ========== -->
-    <el-tab-pane label="运维（校验 / 导出）" name="ops">
+    <el-tab-pane label="运维（备份 / 校验 / 导出）" name="ops">
+      <el-card shadow="never" class="ops-card">
+        <template #header><span>数据备份（系统级，覆盖全部文件）</span></template>
+        <el-form inline>
+          <el-form-item label="备份模式">
+            <el-radio-group v-model="backupForm.mode" @change="onBackupModeChange">
+              <el-radio-button value="off">关闭</el-radio-button>
+              <el-radio-button value="realtime">实时备份</el-radio-button>
+              <el-radio-button value="scheduled">定时备份</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="backupForm.mode === 'scheduled'" label="每天">
+            <el-time-picker v-model="backupForm.run_at" format="HH:mm" value-format="HH:mm"
+              placeholder="02:00" style="width: 110px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="backupSaving" @click="saveBackupSetting">保存设置</el-button>
+            <el-button :loading="backupRunning" @click="runBackupNow">立即全量备份</el-button>
+          </el-form-item>
+        </el-form>
+        <p class="ops-tip">
+          <b>实时备份</b>：每个文件上传完成后自动复制一份到备份目录；
+          <b>定时备份</b>：每天在设定时刻增量备份全部文件 + 元数据快照（metadata.json）。
+          备份位置：<code>{{ backupInfo.backup_dir || '-' }}</code>——建议在 docker-compose.yml 中把
+          /data/backup 挂载到宿主机路径或 NAS（与主数据不同物理盘更安全），详见 README。
+        </p>
+        <el-table :data="backupInfo.runs || []" size="small">
+          <el-table-column label="时间" width="150">
+            <template #default="{ row }">{{ formatDateTime(row.started_at) }}</template>
+          </el-table-column>
+          <el-table-column label="触发" width="90">
+            <template #default="{ row }">{{ row.trigger === 'manual' ? '手动' : '定时' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'done'" size="small" type="success">完成</el-tag>
+              <el-tag v-else-if="row.status === 'running'" size="small">进行中</el-tag>
+              <el-tag v-else size="small" type="danger">失败</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="file_count" label="文件数" width="80" />
+          <el-table-column label="总大小" width="100">
+            <template #default="{ row }">{{ formatBytes(row.total_size) }}</template>
+          </el-table-column>
+          <el-table-column prop="error" label="错误" min-width="160" show-overflow-tooltip />
+        </el-table>
+      </el-card>
+
       <el-row :gutter="16">
         <el-col :span="12">
           <el-card shadow="never">
@@ -336,7 +383,7 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { errMsg } from '../api'
 import { useConfigStore } from '../stores/config'
-import { formatDateTime, OBJECT_KIND_LABEL, FIELD_TYPE_LABEL, tokenUrl } from '../utils'
+import { formatBytes, formatDateTime, OBJECT_KIND_LABEL, FIELD_TYPE_LABEL, tokenUrl } from '../utils'
 
 const cfg = useConfigStore()
 const tab = ref('projects')
@@ -345,6 +392,7 @@ onMounted(async () => {
   await cfg.refreshAll()
   loadUsers()
   loadVerify()
+  loadBackup()
 })
 
 // ---------- 项目 ----------
@@ -566,7 +614,63 @@ async function saveUser() {
   } catch (e) { ElMessage.error(errMsg(e)) }
 }
 
-// ---------- 运维 ----------
+// ---------- 运维：备份 ----------
+const backupForm = reactive({ mode: 'off', run_at: '02:00' })
+const backupInfo = ref({ runs: [], backup_dir: '', setting: null })
+const backupSaving = ref(false)
+const backupRunning = ref(false)
+
+async function loadBackup() {
+  try {
+    const { data } = await api.get('/ops/backup')
+    backupInfo.value = data
+    if (data.setting) {
+      backupForm.mode = data.setting.mode
+      backupForm.run_at = data.setting.run_at
+    }
+  } catch { /* ignore */ }
+}
+
+function onBackupModeChange() { /* 仅控制时间选择器显隐 */ }
+
+async function saveBackupSetting() {
+  backupSaving.value = true
+  try {
+    await api.put('/ops/backup', { mode: backupForm.mode, run_at: backupForm.run_at || '02:00' })
+    ElMessage.success('备份设置已保存')
+    loadBackup()
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    backupSaving.value = false
+  }
+}
+
+async function runBackupNow() {
+  backupRunning.value = true
+  try {
+    const { data } = await api.post('/ops/backup/run')
+    // 轮询任务状态
+    for (let i = 0; i < 300; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const { data: st } = await api.get(`/ops/backup/run/${data.run_id}`)
+      if (st.status !== 'running') break
+    }
+    await loadBackup()
+    const last = backupInfo.value.runs?.[0]
+    if (last?.status === 'done') {
+      ElMessage.success(`备份完成：${last.file_count} 个文件，共 ${formatBytes(last.total_size)}`)
+    } else if (last?.status === 'error') {
+      ElMessage.error(`备份失败：${last.error}`)
+    }
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    backupRunning.value = false
+  }
+}
+
+// ---------- 运维：校验 ----------
 const verifyJob = ref(null)
 const verifyResult = ref(null)
 const exportProjectId = ref(null)
@@ -625,6 +729,8 @@ function downloadExport(job) {
 .cat-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .dim { color: #909399; font-size: 13px; }
 .tag-wall { padding: 8px 0; }
-.ops-tip { color: #909399; font-size: 13px; line-height: 1.6; }
+.ops-card { margin-bottom: 14px; }
+.ops-tip { color: #909399; font-size: 13px; line-height: 1.7; }
+.ops-tip code { background: #f0f2f5; padding: 1px 6px; border-radius: 4px; color: #476582; }
 .verify-result { margin-top: 14px; }
 </style>

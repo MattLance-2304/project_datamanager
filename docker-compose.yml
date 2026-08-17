@@ -27,10 +27,15 @@ services:
       # 生产环境务必修改为长随机字符串（>= 32 字符）
       RDMS_JWT_SECRET: please-change-me-to-a-long-random-string
       RDMS_TOKEN_EXPIRE_HOURS: "72"
+      RDMS_BACKUP_DIR: /data/backup
       TZ: Asia/Shanghai
     volumes:
       - filestore:/data/files
+      # 备份默认放独立卷；更推荐改为宿主机路径/NAS 挂载（与主数据不同物理盘更安全），例如：
+      # - /mnt/nas-backup/rdms:/data/backup
+      - backups:/data/backup
 
 volumes:
   pgdata:
   filestore:
+  backups:

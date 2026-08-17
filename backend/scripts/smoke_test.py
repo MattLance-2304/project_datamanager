@@ -295,7 +295,7 @@ def main():
     r = client.delete(f"/api/records/{rec1['id']}", headers=H)
     check("有派生文件时禁止彻底删除", r.status_code == 400)
 
-    print("== 11. 统计 / 校验 / 导出 ==")
+    print("== 11. 统计 / 校验 / 导出 / 备份 ==")
     r = client.get("/api/stats/overview", headers=H)
     check("统计概览", r.status_code == 200 and r.json()["total_records"] >= 3, r.text)
     check("分类分布", any(c["name"] == "WB" and c["count"] >= 3 for c in r.json()["by_category"]))
@@ -322,6 +322,45 @@ def main():
     check("导出任务完成", job["status"] == "done", str(job))
     r = client.get(f"/api/ops/export/{job_id}/download", headers=H)
     check("导出 zip 可下载", r.status_code == 200 and len(r.content) > 100)
+
+    # ---- 备份系统 ----
+    r = client.get("/api/ops/backup", headers=H)
+    check("读取备份设置", r.status_code == 200 and r.json()["setting"]["mode"] == "off", r.text)
+
+    r = client.put("/api/ops/backup", headers=H, json={"mode": "scheduled", "run_at": "25:99"})
+    check("非法时间被拒绝(422)", r.status_code == 422)
+
+    r = client.put("/api/ops/backup", headers=H, json={"mode": "scheduled", "run_at": "01:30"})
+    check("保存定时备份设置", r.status_code == 200 and r.json()["run_at"] == "01:30", r.text)
+
+    r = client.post("/api/ops/backup/run", headers=H)
+    check("启动全量备份", r.status_code == 200, r.text)
+    run_id = r.json()["run_id"]
+    for _ in range(60):
+        r = client.get(f"/api/ops/backup/run/{run_id}", headers=H)
+        if r.json()["status"] != "running":
+            break
+        time.sleep(0.3)
+    check("全量备份完成", r.json()["status"] == "done" and r.json()["file_count"] >= 5, r.text)
+    backup_pool = TEST_DATA / "backup" / "pool"
+    check("备份池含 blob", any(backup_pool.glob("*/*")), str(backup_pool))
+    check("备份含元数据快照", (TEST_DATA / "backup" / "metadata.json").exists())
+
+    # 实时备份：新上传的文件自动进入备份目录
+    r = client.put("/api/ops/backup", headers=H, json={"mode": "realtime", "run_at": "01:30"})
+    check("切换实时备份", r.status_code == 200)
+    rt_png = make_png(40, 40, (90, 90, 20))
+    up_rt = upload_bytes(rt_png, "realtime_probe.png", H)
+    backup_blob = TEST_DATA / "backup" / "pool" / up_rt["sha256"][:2] / up_rt["sha256"]
+    ok_rt = False
+    for _ in range(20):
+        if backup_blob.exists():
+            ok_rt = True
+            break
+        time.sleep(0.3)
+    check("实时备份自动复制新文件", ok_rt, str(backup_blob))
+    r = client.put("/api/ops/backup", headers=H, json={"mode": "off", "run_at": "01:30"})
+    check("关闭备份", r.status_code == 200)
 
     print("== 12. 彻底删除与物理清理 ==")
     r = client.delete(f"/api/records/{recd['id']}", headers=H)

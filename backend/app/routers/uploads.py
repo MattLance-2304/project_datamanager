@@ -10,6 +10,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import FileObj, User
 from ..schemas import HashCheckIn, UploadInitIn
+from ..services.backup import spawn_realtime_backup
 from ..services.storage import storage
 from ..services.thumbnails import spawn_thumbnail
 
@@ -69,6 +70,7 @@ def complete_upload(upload_id: str, db: Session = Depends(get_db),
         if not existing.thumb_path:
             spawn_thumbnail(existing.id)
         _sessions.pop(upload_id, None)
+        spawn_realtime_backup(sha256)
         return {"file_id": existing.id, "sha256": sha256, "size": existing.size,
                 "mime": existing.mime, "dedup": True}
 
@@ -88,6 +90,7 @@ def complete_upload(upload_id: str, db: Session = Depends(get_db),
     db.refresh(f)
     spawn_thumbnail(f.id)
     _sessions.pop(upload_id, None)
+    spawn_realtime_backup(sha256)
     return {"file_id": f.id, "sha256": sha256, "size": size, "mime": mime, "dedup": False}
 
 

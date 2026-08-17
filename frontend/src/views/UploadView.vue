@@ -50,6 +50,9 @@
                 <el-icon><FolderAdd /></el-icon>选择文件夹
               </el-button>
               <el-button size="small" @click="$refs.fileInput.click()">选择文件</el-button>
+              <el-button size="small" plain type="primary" @click="createGroup()">
+                <el-icon><CirclePlus /></el-icon>新建组
+              </el-button>
               <span class="flex-grow" />
               <el-tooltip content="开启后：拖入的文件夹按一级子文件夹自动成一个组；关闭后：所有文件进入上方未分组池，由你手动拖入各组织" placement="top">
                 <el-switch v-model="autoGroup" active-text="按子文件夹自动分组" size="small" />
@@ -79,8 +82,19 @@
               </div>
             </div>
 
-            <!-- 组块板 -->
+            <!-- 组块板：新建组块固定在第一位，随后是各编组 -->
             <div class="board">
+              <div
+                class="group-block new-block"
+                @dragenter.prevent="newHot = true" @dragover.prevent="newHot = true"
+                @dragleave="newLeave($event)" @drop.prevent="onDropZone($event, { target: 'new' })"
+                @click="createGroup()"
+              >
+                <el-icon :size="26" color="#409eff"><CirclePlus /></el-icon>
+                <div>新建组</div>
+                <div class="dim" style="font-size: 12px">拖文件/文件夹到此处可快速建组</div>
+              </div>
+
               <div
                 v-for="g in groups" :key="g.id"
                 class="group-block" :class="{ 'drop-hot': g._hot, uploading: g._busy }"
@@ -126,18 +140,6 @@
                   <div v-if="!g.files.length" class="group-empty">空组——把文件拖进来</div>
                 </div>
               </div>
-
-              <!-- 新建组块：拖文件到此处 = 新建组并放入 -->
-              <div
-                class="group-block new-block"
-                @dragenter.prevent="newHot = true" @dragover.prevent="newHot = true"
-                @dragleave="newLeave($event)" @drop.prevent="onDropZone($event, { target: 'new' })"
-                @click="createGroup()"
-              >
-                <el-icon :size="26" color="#409eff"><CirclePlus /></el-icon>
-                <div>新建组</div>
-                <div class="dim" style="font-size: 12px">拖文件/文件夹到此处可快速建组</div>
-              </div>
             </div>
 
             <input ref="dirInput" type="file" webkitdirectory multiple style="display: none" @change="onDirPick" />
@@ -159,7 +161,6 @@
                 <el-radio-group v-model="form.kind">
                   <el-radio-button value="raw">原始数据</el-radio-button>
                   <el-radio-button value="derived">派生数据</el-radio-button>
-                  <el-radio-button value="backup">备份文件</el-radio-button>
                 </el-radio-group>
               </el-form-item>
 
@@ -320,10 +321,15 @@ function onFileAdd(file) {
 // ---------- 外部文件导入（文件夹递归读取） ----------
 
 function onDirPick(e) {
-  importFiles([...e.target.files].map((f) => {
+  const fls = [...e.target.files]
+  if (!fls.length) return
+  // webkitRelativePath 第一段是用户选择的文件夹本身，标记为 root 供分组时剥离
+  const root = (fls[0].webkitRelativePath || fls[0].name).split('/')[0]
+  for (const f of fls) {
     f.relPath = f.webkitRelativePath || f.name
-    return f
-  }))
+    f.root = root
+  }
+  importFiles(fls)
   e.target.value = ''
 }
 
@@ -335,31 +341,47 @@ function onFilesPick(e) {
   e.target.value = ''
 }
 
-/** 外部 drop / 选择器导入统一入口。fls 为带 relPath 的原生 File 列表。 */
+/** 外部 drop / 选择器导入统一入口。fls 为带 relPath（及可选 root=顶层文件夹名）的原生 File 列表。 */
 function importFiles(fls) {
   if (!fls.length) return
   if (autoGroup.value) {
-    // 按一级子文件夹自动成组；散文件进池子
-    const byFolder = new Map()
+    // 约定：relPath = root/子文件夹/…/文件 或 子文件夹/…/文件 或 文件名
+    // 顶层文件夹之下的“一级子文件夹”为一个组；顶层文件夹下直接是文件时整个文件夹为一组
+    const byGroup = new Map()
     const loose = []
     for (const fl of fls) {
-      const rel = fl.relPath || fl.name
-      const segs = rel.split('/')
-      if (segs.length > 1) {
-        const folder = segs[0]
-        if (!byFolder.has(folder)) byFolder.set(folder, [])
-        byFolder.get(folder).push(fl)
+      const segs = String(fl.relPath || fl.name).split('/').filter(Boolean)
+      let groupKey = null
+      let groupName = null
+      if (segs.length >= 2) {
+        if (fl.root && segs[0] === fl.root) {
+          const inner = segs.slice(1)
+          if (inner.length >= 2) {
+            groupKey = `${fl.root}/${inner[0]}`
+            groupName = inner[0]      // 顶层文件夹下还有子文件夹 → 子文件夹为组
+          } else {
+            groupKey = fl.root        // 文件直接在顶层文件夹下 → 整个文件夹为组
+            groupName = fl.root
+          }
+        } else {
+          groupKey = segs[0]          // 无 root 标记（如选择文件夹已去掉根）→ 一级目录为组
+          groupName = segs[0]
+        }
+      }
+      if (groupKey) {
+        if (!byGroup.has(groupKey)) byGroup.set(groupKey, { name: groupName, files: [] })
+        byGroup.get(groupKey).files.push(fl)
       } else {
         loose.push(fl)
       }
     }
-    for (const [folder, list] of byFolder) {
-      const g = createGroup(folder)
-      g.files = list.map(makeItem)
+    for (const [, { name, files }] of byGroup) {
+      const g = createGroup(name)
+      g.files = files.map(makeItem)
       g.primaryUid = defaultPrimary(g).uid
     }
     if (loose.length) pool.value.push(...loose.map(makeItem))
-    if (loose.length && !byFolder.size) {
+    if (loose.length && !byGroup.size) {
       ElMessage.info(`${loose.length} 个散文件已放入未分组池，可拖入组块编组`)
     }
   } else {
@@ -420,19 +442,22 @@ function landExternals(fls, { target, group }) {
   importFiles(fls) // 落到池子：按自动分组开关处理
 }
 
-function walkEntry(entry, prefix, out) {
+function walkEntry(entry, prefix, out, rootName = '') {
   return new Promise((resolve) => {
     if (entry.isFile) {
       entry.file((f) => {
         f.relPath = prefix + f.name
+        f.root = rootName
         out.push(f)
         resolve()
       }, resolve)
     } else if (entry.isDirectory) {
+      // 顶层目录（prefix 为空）记为 root；其下的文件按“root/一级子文件夹”分组
+      const root = rootName || entry.name
       const reader = entry.createReader()
       const readBatch = () => reader.readEntries(async (children) => {
         if (!children.length) return resolve()
-        for (const child of children) await walkEntry(child, prefix + entry.name + '/', out)
+        for (const child of children) await walkEntry(child, prefix + entry.name + '/', out, root)
         readBatch() // 目录条目超过 100 个时需反复读取
       }, resolve)
       readBatch()
@@ -775,8 +800,9 @@ async function finishMessage(data, countOverride) {
 .file-icon { font-size: 20px; color: #409eff; flex-shrink: 0; }
 .file-info { flex: 1; min-width: 0; }
 .file-name {
-  font-size: 13px; color: #303133; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; margin-bottom: 2px;
+  font-size: 13px; color: #303133; margin-bottom: 2px; line-height: 1.45;
+  white-space: normal; word-break: break-all; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
 }
 .file-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .size { font-size: 12px; color: #909399; }
@@ -796,12 +822,16 @@ async function finishMessage(data, countOverride) {
 .pool-title .dim { font-weight: 400; font-size: 12px; }
 .pool-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
-  display: inline-flex; align-items: center; gap: 6px; max-width: 260px;
-  border: 1px solid #dcdfe6; border-radius: 14px; padding: 2px 10px; font-size: 12px;
+  display: inline-flex; align-items: flex-start; gap: 6px; max-width: 100%;
+  border: 1px solid #dcdfe6; border-radius: 10px; padding: 4px 10px; font-size: 12px;
   background: #fff; cursor: grab; user-select: none;
 }
 .chip:active { cursor: grabbing; }
-.chip-name { color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-name {
+  color: #303133; white-space: normal; word-break: break-all; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.4;
+  min-width: 120px; max-width: 420px;
+}
 .chip-size { color: #909399; flex-shrink: 0; }
 .pool-empty, .group-empty { color: #c0c4cc; font-size: 12px; padding: 8px 2px; }
 
