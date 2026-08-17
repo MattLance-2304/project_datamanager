@@ -60,6 +60,27 @@ done
 2. 端口：如需只在内网访问，将 `"8000:8000"` 改为 `"127.0.0.1:8000:8000"` 再用反向代理（nginx）加 HTTPS
 3. 数据库密码（`POSTGRES_PASSWORD` 与 `RDMS_DATABASE_URL` 中对应位置同步修改）
 
+## 代码更新与数据安全（多服务器同步）
+
+已录入的数据存放在 `pgdata`（元数据库）与 `filestore`（文件本体）两个 Docker 卷中，**代码更新只重建 app 容器，完全不碰这两个卷**。日常开发→部署流程：
+
+```text
+本机改代码 → git commit → git push → 服务器上执行 ./update.sh
+```
+
+服务器端（另一台机器）首次部署：
+
+```bash
+git clone https://github.com/MattLance-2304/project_datamanager.git zcode
+cd zcode && docker compose up -d --build
+```
+
+之后每次同步更新只需执行项目目录下的 `update.sh`（内容：git pull + docker compose up -d --build），构建层缓存命中时通常几十秒内完成。
+
+> ⚠️ **唯一禁忌：不要在服务器上执行 `docker compose down -v`**——`-v` 会删除数据卷，清空全部数据。`docker compose down`（不带 -v）和 `restart` 都是安全的。
+>
+> 建议按 README 前文的备份方案定期 pg_dump + rsync，多一重保险。
+
 ## 数据存放位置与备份
 
 | 内容 | 位置（容器卷） | 说明 |
