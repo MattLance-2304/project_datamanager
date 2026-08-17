@@ -29,16 +29,9 @@ docker compose up -d --build
 # 默认管理员账号：admin / admin123
 ```
 
-### 修改端口（8000 被占用时）
+### 修改端口
 
-访问端口通过环境变量 `RDMS_PORT` 控制，默认 8000。两种方式任选：
-
-```bash
-# 方式一：临时指定端口启动
-RDMS_PORT=8100 docker compose up -d
-
-# 方式二：持久化 —— 复制 .env.example 为 .env 并修改其中的 RDMS_PORT=8100，之后正常 docker compose up -d
-```
+访问端口通过环境变量 `RDMS_PORT` 控制，`update.sh` 首次运行会自动创建 `.env` 并固定为 8100。如需更换端口，编辑项目目录下 `.env` 中的 `RDMS_PORT` 后重新 `docker compose up -d` 即可；也可临时指定 `RDMS_PORT=9000 docker compose up -d`。
 
 > **首次登录后请立即在右上角「修改密码」修改 admin 密码**，并在「系统管理 → 用户管理」中为实验室成员建立账号。
 

@@ -1,20 +1,46 @@
 #!/usr/bin/env bash
-# 服务器端一键更新：拉取最新代码 → 重建并启动容器（不影响已录入数据）
-# 用法：在项目目录（含 docker-compose.yml 的目录）执行  ./update.sh
-set -e
+# 一键同步更新：停止容器 → 拉取最新代码 → 重建启动（不影响已录入数据）
+# 用法：在项目目录执行  ./update.sh
+# 端口：默认 8100；如需更换，编辑项目目录下 .env 中的 RDMS_PORT
+set -u
 cd "$(dirname "$0")"
 
-echo "==> 拉取最新代码..."
-git pull --ff-only
+# ---- 端口固化：首次运行自动创建 .env，默认 8100 ----
+if [ ! -f .env ]; then
+  echo "RDMS_PORT=8100" > .env
+  echo "==> 已创建 .env（RDMS_PORT=8100）"
+fi
+# shellcheck disable=SC1091
+. ./.env 2>/dev/null || true
+PORT="${RDMS_PORT:-8100}"
 
-echo "==> 重建并启动容器（数据库与文件卷不受影响）..."
+echo "==> 1/4 停止容器（保留数据卷，不会动任何数据）..."
+docker compose down
+
+echo "==> 2/4 拉取最新代码..."
+if git pull --ff-only; then
+  echo "    代码已更新"
+else
+  echo "!! git pull 失败（网络不通或本地有改动）。"
+  echo "   常见原因：服务器未开代理 —— 先执行  source ~/proxy_copy.sh  再重试。"
+  echo "   本次将使用现有代码继续启动，不影响数据。"
+fi
+
+echo "==> 3/4 构建并启动（端口 ${PORT}）..."
 docker compose up -d --build
 
-echo "==> 清理悬空构建缓存..."
 docker image prune -f >/dev/null 2>&1 || true
 
-echo "==> 当前状态："
+echo "==> 4/4 健康检查..."
+sleep 4
+if curl -s -o /dev/null --max-time 10 "http://127.0.0.1:${PORT}/"; then
+  echo "    服务已就绪：http://<服务器IP>:${PORT}/"
+else
+  echo "    服务可能仍在启动中，稍后浏览器访问 http://<服务器IP>:${PORT}/ 确认；"
+  echo "    若持续无响应，查看日志：docker compose logs app --tail 50"
+fi
+
+echo ""
 docker compose ps
 echo ""
-echo "更新完成。若前端页面未变化，浏览器强制刷新（Ctrl+F5）即可。"
-echo "提醒：永远不要使用 docker compose down -v，-v 会删除数据卷。"
+echo "提醒：浏览器端请 Ctrl+F5 强制刷新；永远不要执行 docker compose down -v（-v 会删除数据卷）。"
