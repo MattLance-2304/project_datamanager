@@ -8,14 +8,37 @@ from ..database import get_db
 from ..models import Category, CustomFieldDef, Record, User
 from ..schemas import CategoryIn, CategoryOut, CustomFieldIn, CustomFieldOut
 
-router = APIRouter(prefix="/categories", tags=["categories"])
-fields_router = APIRouter(prefix="/custom-fields", tags=["custom-fields"])
-
 
 def slugify_key(label: str, fallback: str = "field") -> str:
     """自定义字段的 key：保留中英文与数字，其余替换为下划线。"""
     key = re.sub(r"[^\w\u4e00-\u9fff]+", "_", label.strip(), flags=re.UNICODE).strip("_")
     return key or fallback
+
+
+router = APIRouter(prefix="/categories", tags=["categories"])
+fields_router = APIRouter(prefix="/custom-fields", tags=["custom-fields"])
+
+
+def _recent_values(db: Session, category_id: int, fields: list) -> dict[str, list[str]]:
+    """从该分类近期记录中聚合每个字段的历史输入值，按最近使用优先（MRU）。"""
+    mru: dict[str, list[str]] = {}
+    if not fields:
+        return mru
+    rows = (db.query(Record.custom_values)
+            .filter(Record.category_id == category_id, Record.deleted_at.is_(None))
+            .order_by(Record.created_at.desc(), Record.id.desc())
+            .limit(500).all())
+    for (cv,) in rows:
+        if not cv:
+            continue
+        for f in fields:
+            v = cv.get(f.field_key)
+            if v is None or v == "":
+                continue
+            lst = mru.setdefault(f.field_key, [])
+            if len(lst) < 8 and str(v) not in lst:
+                lst.append(str(v))
+    return mru
 
 
 # ---------- 分类 ----------
@@ -80,7 +103,13 @@ def delete_category(category_id: int, db: Session = Depends(get_db), _: User = D
 def list_fields(category_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     fields = (db.query(CustomFieldDef).filter(CustomFieldDef.category_id == category_id)
               .order_by(CustomFieldDef.sort_order, CustomFieldDef.id).all())
-    return [CustomFieldOut.model_validate(f) for f in fields]
+    mru = _recent_values(db, category_id, fields)
+    out = []
+    for f in fields:
+        item = CustomFieldOut.model_validate(f)
+        item.recent_values = mru.get(f.field_key, [])
+        out.append(item)
+    return out
 
 
 @fields_router.post("")

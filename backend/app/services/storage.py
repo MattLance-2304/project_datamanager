@@ -17,9 +17,10 @@ class Storage:
         self.root = Path(data_dir)
         self.pool = self.root / "pool"
         self.thumbs = self.root / "thumbs"
+        self.previews = self.root / "previews"
         self.tmp = self.root / "tmp"
         self.exports = self.root / "exports"
-        for d in (self.root, self.pool, self.thumbs, self.tmp, self.exports):
+        for d in (self.root, self.pool, self.thumbs, self.previews, self.tmp, self.exports):
             d.mkdir(parents=True, exist_ok=True)
 
     def blob_path(self, sha256: str) -> Path:

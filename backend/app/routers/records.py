@@ -14,6 +14,7 @@ from ..models import AuditLog, Category, CustomFieldDef, FileObj, Project, Recor
     SampleObject, Tag, User
 from ..schemas import BatchIn, MarkUsedIn, RecordCreateIn, RecordOut, RecordUpdateIn
 from ..services.storage import storage
+from ..services.thumbnails import preview_path_for
 
 router = APIRouter(prefix="/records", tags=["records"])
 
@@ -29,7 +30,7 @@ def _audit(db: Session, record_id: int, user_id: int | None, action: str,
 
 
 def _validate_custom(db: Session, category_id: int | None, values: dict) -> list[str]:
-    """校验自定义字段：必填、下拉选项、数值与日期格式。返回错误信息列表。"""
+    """校验自定义字段：必填、数值与日期格式。下拉字段允许自由输入（不强制选自预设选项）。"""
     if not category_id:
         return []
     errors = []
@@ -44,11 +45,7 @@ def _validate_custom(db: Session, category_id: int | None, values: dict) -> list
             continue
         if empty:
             continue
-        if f.field_type == "select":
-            options = f.select_options or []
-            if options and str(v) not in [str(o) for o in options]:
-                errors.append(f"字段“{f.label}”的值必须是下拉选项之一")
-        elif f.field_type == "number":
+        if f.field_type == "number":
             try:
                 float(v)
             except (TypeError, ValueError):
@@ -559,6 +556,7 @@ def thumbnail(rid: int, db: Session = Depends(get_db), _: User = Depends(get_cur
 
 @router.get("/{rid}/preview")
 def preview(rid: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """在线预览：浏览器可直接渲染的格式返回原文件；scn/大 TIFF 等返回 1600px 预览图；再退到缩略图。"""
     r = _get_record(db, rid)
     f = r.file
     if f is None or not Path(f.storage_path).exists():
@@ -566,6 +564,11 @@ def preview(rid: int, db: Session = Depends(get_db), _: User = Depends(get_curre
     ext = Path(r.original_name).suffix.lower()
     if f.mime in PREVIEWABLE_MIME or ext in PREVIEWABLE_EXT:
         return FileResponse(f.storage_path, media_type=f.mime)
+    big = preview_path_for(f.id)
+    if big.exists():
+        return FileResponse(big, media_type="image/jpeg")
+    if f.thumb_path and Path(f.thumb_path).exists():
+        return FileResponse(f.thumb_path, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="该格式不支持在线预览，请下载后查看")
 
 

@@ -107,10 +107,11 @@ class CustomFieldOut(BaseModel):
     select_options: list[str] = []
     is_required: bool
     sort_order: int
+    recent_values: list[str] = []  # 该字段历史上输入过的值，按最近使用排序（MRU）
 
     model_config = {"from_attributes": True}
 
-    @field_validator("select_options", mode="before")
+    @field_validator("select_options", "recent_values", mode="before")
     @classmethod
     def _none_to_list(cls, v):
         return v or []

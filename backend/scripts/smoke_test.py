@@ -157,9 +157,14 @@ def main():
 
     r = client.post("/api/records", headers=H, json={
         "file_ids": [up1["file_id"]], "kind": "raw", "category_id": wb["id"],
-        "custom_values": {"抗体": "不存在选项"},
+        "custom_values": {"抗体": "anti-自由输入新抗体"},
     })
-    check("下拉字段校验拒绝(422)", r.status_code == 422, r.text)
+    check("下拉字段允许自由输入", r.status_code == 200, r.text)
+    rec_free = r.json()["items"][0]
+    r = client.get(f"/api/custom-fields?category_id={wb['id']}", headers=H)
+    antibody = next(f for f in r.json() if f["label"] == "抗体")
+    check("自由输入纳入历史候选(MRU)", antibody["recent_values"] and
+          antibody["recent_values"][0] == "anti-自由输入新抗体", str(antibody["recent_values"]))
 
     r = client.post("/api/records", headers=H, json={
         "file_ids": [up4["file_id"]], "kind": "raw", "project_id": project_c["id"],
@@ -170,13 +175,13 @@ def main():
 
     print("== 5. 列表与筛选 ==")
     r = client.get("/api/records", headers=H)
-    check("列表分页结构", r.status_code == 200 and r.json()["total"] == 2)
+    check("列表分页结构", r.status_code == 200 and r.json()["total"] == 3)
     r = client.get(f"/api/records?project_id={project_a['id']}", headers=H)
     check("按项目筛选", r.json()["total"] == 1 and r.json()["items"][0]["id"] == rec1["id"])
     r = client.get("/api/records?q=wb_gel", headers=H)
-    check("关键词筛选", r.json()["total"] == 1)
+    check("关键词筛选", r.json()["total"] == 2)
     r = client.get(f"/api/records?q={up1['sha256'][:16]}", headers=H)
-    check("按 SHA256 前缀搜索", r.json()["total"] == 1)
+    check("按 SHA256 前缀搜索", r.json()["total"] == 2)
     r = client.get(f"/api/records?tag_id={tag1['id']}", headers=H)
     check("按标签筛选", r.json()["total"] == 1)
     r = client.get("/api/records?used=true", headers=H)
@@ -246,6 +251,23 @@ def main():
     r = client.get(f"/api/records/{rec1['id']}/preview", headers=H)
     check("PNG 在线预览", r.status_code == 200)
 
+    # 大 TIFF（>300KB 图像）：preview 应回退到 1600px 大预览图（scn 等同路径）
+    big_tiff = io.BytesIO()
+    Image.new("RGB", (2400, 1600), (12, 120, 220)).save(big_tiff, "TIFF")
+    up_tiff = upload_bytes(big_tiff.getvalue(), "wb_slide_scan.tif", H)
+    r = client.post("/api/records", headers=H, json={
+        "file_ids": [up_tiff["file_id"]], "kind": "raw", "category_id": wb["id"],
+    })
+    rec_tiff = r.json()["items"][0]
+    ok_preview = False
+    for _ in range(30):
+        r = client.get(f"/api/records/{rec_tiff['id']}/preview", headers=H)
+        if r.status_code == 200:
+            ok_preview = r.headers["content-type"].startswith("image/")
+            break
+        time.sleep(0.3)
+    check("大 TIFF/scn 路径在线预览(1600px)", ok_preview, f"status={r.status_code}")
+
     r = client.get(f"/api/records/{rec1['id']}/download", headers=H)
     check("下载内容一致", r.status_code == 200 and hashlib.sha256(r.content).hexdigest() == up1["sha256"])
 
@@ -310,6 +332,8 @@ def main():
     check("去重 blob 仍保留（另有引用）", blob.exists())
     r = client.delete(f"/api/records/{rec1['id']}", headers=H)
     check("删除原始条目", r.status_code == 200)
+    r = client.delete(f"/api/records/{rec_free['id']}", headers=H)
+    check("删除自由值测试条目", r.status_code == 200, r.text)
     r = client.delete(f"/api/records/{rec2['id']}", headers=H)
     check("删除后引用清零 → blob 清理", not blob.exists(), "blob 仍存在")
 

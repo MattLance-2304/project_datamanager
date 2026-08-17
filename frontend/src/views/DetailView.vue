@@ -8,8 +8,8 @@
         <el-tag v-if="record.used_in_pub" type="success">已用于发表：{{ record.publication_ref }}</el-tag>
       </div>
       <div class="head-actions">
-        <el-button v-if="isPreviewable(record.original_name)" @click="openPreview">
-          <el-icon><ZoomIn /></el-icon>查看原图
+        <el-button :disabled="!previewOk" @click="openPreview">
+          <el-icon><ZoomIn /></el-icon>预览大图
         </el-button>
         <el-button @click="download"><el-icon><Download /></el-icon>下载</el-button>
         <el-button type="primary" @click="goDerive"><el-icon><Scissor /></el-icon>上传派生文件</el-button>
@@ -24,13 +24,13 @@
           <template #header><span>预览</span></template>
           <div class="preview-box">
             <el-image
-              v-if="record.has_thumb" :src="thumbUrl" fit="contain" class="preview-img"
-              :preview-src-list="isPreviewable(record.original_name) ? [previewUrl] : [thumbUrl]"
-              :preview-teleported="true"
+              v-if="record.has_thumb || previewOk" :src="record.has_thumb ? thumbUrl : previewUrl"
+              fit="contain" class="preview-img"
+              :preview-src-list="[previewUrl]" :preview-teleported="true" hide-on-click-modal
             />
             <div v-else class="no-preview">
               <el-icon :size="46"><Picture /></el-icon>
-              <p>该格式无缩略图（{{ ext }}），请下载后查看</p>
+              <p>该格式无预览（{{ ext }}），请下载后查看</p>
             </div>
           </div>
           <el-descriptions :column="1" border size="small" class="file-desc">
@@ -190,7 +190,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { errMsg } from '../api'
 import { useConfigStore } from '../stores/config'
 import {
-  formatBytes, formatDateTime, isPreviewable, tokenUrl, extOf,
+  formatBytes, formatDateTime, tokenUrl, extOf,
   KIND_LABEL, KIND_TAG, OBJECT_KIND_LABEL, AUDIT_LABEL,
 } from '../utils'
 import MetaFields from '../components/MetaFields.vue'
@@ -214,6 +214,7 @@ const editForm = reactive({
 const saving = ref(false)
 const usedForm = reactive({ used: false, ref: '' })
 const savingUsed = ref(false)
+const previewOk = ref(true)
 
 const thumbUrl = computed(() => tokenUrl(`/api/records/${record.value.id}/thumbnail`))
 const previewUrl = computed(() => tokenUrl(`/api/records/${record.value.id}/preview`))
@@ -247,12 +248,22 @@ async function load() {
     usedForm.used = data.record.used_in_pub
     usedForm.ref = data.record.publication_ref
 
+    // 详情页的字段定义走强制刷新，保证"最近使用值"最新
+    if (data.record.category_id) {
+      customFields.value = await cfg.loadFields(data.record.category_id, { force: true })
+    }
+
     const [lin, logs] = await Promise.all([
       api.get(`/records/${route.params.id}/lineage`),
       api.get(`/records/${route.params.id}/audit`),
     ])
     lineage.value = lin.data
     auditLogs.value = logs.data
+    try {
+      previewOk.value = (await api.head(`/records/${record.value.id}/preview`)).status === 200
+    } catch {
+      previewOk.value = false
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
     router.push('/browse')

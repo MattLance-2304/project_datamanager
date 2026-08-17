@@ -32,9 +32,9 @@ export const useConfigStore = defineStore('config', {
     async ensureLoaded() {
       if (!this.loaded) await this.refreshAll()
     },
-    async loadFields(categoryId) {
+    async loadFields(categoryId, { force = false } = {}) {
       if (!categoryId) return []
-      if (this.fieldsByCategory[categoryId]) return this.fieldsByCategory[categoryId]
+      if (!force && this.fieldsByCategory[categoryId]) return this.fieldsByCategory[categoryId]
       const { data } = await api.get('/custom-fields', { params: { category_id: categoryId } })
       this.fieldsByCategory[categoryId] = data
       return data
