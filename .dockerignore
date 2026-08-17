@@ -1,0 +1,15 @@
+backend/.venv
+backend/__pycache__
+backend/app/__pycache__
+backend/app/**/__pycache__
+backend/dev.db*
+backend/test_rdms.db*
+backend/dev_data
+backend/test_data
+backend/static
+backend/scripts
+frontend/node_modules
+frontend/dist
+.git
+*.md
+docker-compose.yml
