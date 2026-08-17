@@ -16,3 +16,4 @@ frontend/dist/
 backend/static/
 *.log
 .env
+.zcode/
