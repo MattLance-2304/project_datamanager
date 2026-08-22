@@ -63,4 +63,10 @@ if (STATIC_DIR / "index.html").exists():
         # 防目录穿越
         if str(target).startswith(str(STATIC_DIR.resolve())) and target.is_file():
             return FileResponse(target)
+        # 静态资源请求（js/wasm/jar 等）未命中时必须 404：
+        # SPA 回落返回 HTML 会让 script 标签加载到网页导致语法错误
+        # （ImageJ/CheerpJ 会按需请求大量运行时文件）
+        suffix = Path(full_path).suffix.lower()
+        if suffix and suffix != ".html":
+            raise HTTPException(status_code=404, detail="资源不存在")
         return FileResponse(STATIC_DIR / "index.html")
