@@ -53,6 +53,17 @@ done
 2. 端口：如需只在内网访问，将 `"8000:8000"` 改为 `"127.0.0.1:8000:8000"` 再用反向代理（nginx）加 HTTPS
 3. 数据库密码（`POSTGRES_PASSWORD` 与 `RDMS_DATABASE_URL` 中对应位置同步修改）
 
+## 内置 ImageJ 图像分析（一条龙）
+
+系统内置了完整版 ImageJ 1.53（[ImageJ.js](https://imagej.net/software/imagej-js/)，基于 CheerpJ 在浏览器内运行 Java 版 ImageJ，**自托管于本系统容器内，不依赖外部网站**）：
+
+1. 任意图像条目详情页点 **「ImageJ 分析」** → 打开浏览器内的 ImageJ 工作台
+2. 点「把图像送入 ImageJ」自动注入（未成功时用「下载图像」+ 拖入 ImageJ 窗口，或 File → Open）
+3. 在 ImageJ 中做常规分析：ROI 测量、WB 条带灰度定量（Analyze → Gels / Measure）、阈值分割、处理等
+4. File → Save 保存结果到本机后，点 **「上传处理结果（存为派生文件）」** —— 结果自动作为当前图像的**派生数据**入库，继承元数据并建立谱系
+
+> 首次打开需在浏览器内初始化 Java 运行时（约 10~60 秒）；CheerpJ 加载器来自 leaningtech CDN，需要服务器能访问外网（imagej 本体已全部内置）。
+
 ## 代码更新与数据安全（多服务器同步）
 
 已录入的数据存放在 `pgdata`（元数据库）与 `filestore`（文件本体）两个 Docker 卷中，**代码更新只重建 app 容器，完全不碰这两个卷**。日常开发→部署流程：

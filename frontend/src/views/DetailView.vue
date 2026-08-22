@@ -12,6 +12,9 @@
           <el-icon><ZoomIn /></el-icon>预览大图
         </el-button>
         <el-button @click="download"><el-icon><Download /></el-icon>下载</el-button>
+        <el-button type="success" plain @click="router.push(`/imagej/${record.id}`)">
+          <el-icon><DataAnalysis /></el-icon>ImageJ 分析
+        </el-button>
         <el-button type="primary" @click="goDerive"><el-icon><Scissor /></el-icon>上传派生文件</el-button>
         <el-button type="danger" plain @click="removeRecord"><el-icon><Delete /></el-icon>移入回收站</el-button>
       </div>

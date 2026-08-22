@@ -15,6 +15,7 @@ const routes = [
       { path: 'browse', component: () => import('./views/BrowseView.vue'), meta: { title: '数据浏览' } },
       { path: 'upload', component: () => import('./views/UploadView.vue'), meta: { title: '上传数据' } },
       { path: 'records/:id', component: () => import('./views/DetailView.vue'), meta: { title: '数据详情' } },
+      { path: 'imagej/:id', component: () => import('./views/ImageJView.vue'), meta: { title: 'ImageJ 图像分析' } },
       { path: 'trash', component: () => import('./views/TrashView.vue'), meta: { title: '回收站' } },
       { path: 'admin', component: () => import('./views/AdminView.vue'), meta: { title: '系统管理', admin: true } },
     ],
